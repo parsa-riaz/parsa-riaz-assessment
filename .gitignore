@@ -1,0 +1,22 @@
+node_modules
+
+# Keep environment variables out of version control
+.env
+.env.local
+.env.*.local
+
+/src/generated/prisma
+
+# Build output
+dist
+
+# Logs
+npm-debug.log*
+*.log
+
+# Editor/OS
+.vscode
+.DS_Store
+
+# Test coverage
+coverage
