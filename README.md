@@ -3,7 +3,7 @@
 A TypeScript/Express/Prisma backend implementing two modules on a shared PostgreSQL database:
 
 - **Chat module** — accepts a question, returns a mocked AI response, tracks a monthly free-message quota per user, and falls back to paid subscription bundles once the free quota is exhausted.
-- **Subscription module** — lets a user create/list/cancel subscription bundles (Basic/Pro/Enterprise, monthly/yearly), with simulated auto-renewal and payment-failure billing.
+- **Subscription module** — lets a user create/list/cancel subscription bundles (Basic/Pro/Enterprise, monthly/yearly), with simulated auto-renewal and payment-failure billing, processed both on-demand and by a daily background job.
 
 ## Tech stack
 
@@ -49,6 +49,16 @@ A TypeScript/Express/Prisma backend implementing two modules on a shared Postgre
    ```
 
 Other scripts: `npm run lint`, `npm run format`, `npm run prisma:generate`.
+
+## Subscription renewal cron
+
+Subscriptions are also processed by an in-process daily cron job (`node-cron`, schedule `0 0 * * *` — once a day at midnight), started automatically when the server boots (`startSubscriptionRenewalCron()` in `src/server.ts`).
+
+Each run scans **every** subscription across all users whose `status` is `ACTIVE` and `endDate` has passed, and for each one:
+- if `autoRenew` is `false` → marks it `INACTIVE`
+- if `autoRenew` is `true` → simulates a payment (`PAYMENT_FAILURE_RATE` chance of failure); on success it renews (`remainingMessages` reset to the plan's `maxMessages`, `endDate`/`renewalDate` pushed forward one billing cycle), on failure it's marked `INACTIVE`
+
+This runs independently of any API traffic — a subscription is renewed/deactivated on the day it actually expires, not only the next time a user happens to hit an endpoint. (The same renewal check also still runs lazily whenever a specific user's subscriptions are read or their chat quota is checked, so it's covered either way — the cron just guarantees same-day processing even with zero requests.)
 
 ## API reference
 

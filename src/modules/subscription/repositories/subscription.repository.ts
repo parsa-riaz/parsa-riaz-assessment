@@ -80,6 +80,18 @@ export async function findDueForRenewal(userId: number, now: Date) {
   });
 }
 
+export async function findAllDueForRenewal(now: Date) {
+  return prisma.subscription.findMany({
+    where: {
+      status: SubscriptionStatus.ACTIVE,
+      endDate: { lte: now },
+    },
+    include: {
+      plan: true,
+    },
+  });
+}
+
 export async function renew(
   id: number,
   data: { endDate: Date; renewalDate: Date; remainingMessages: number | null }

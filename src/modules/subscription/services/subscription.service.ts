@@ -1,8 +1,12 @@
-import { BillingCycle } from "@prisma/client";
+import { BillingCycle, Prisma } from "@prisma/client";
 import { env } from "../../../config/env";
 import { ApiError } from "../../../utils/ApiError";
 import { CreateSubscriptionDto } from "../dto/subscription.dto";
 import * as subscriptionRepository from "../repositories/subscription.repository";
+
+type SubscriptionWithPlan = Prisma.SubscriptionGetPayload<{
+  include: { plan: true };
+}>;
 
 function calculateEndDate(billingCycle: BillingCycle) {
   const endDate = new Date();
@@ -14,6 +18,28 @@ function calculateEndDate(billingCycle: BillingCycle) {
   }
 
   return endDate;
+}
+
+async function processRenewal(subscription: SubscriptionWithPlan) {
+  if (!subscription.autoRenew) {
+    await subscriptionRepository.deactivate(subscription.id);
+    return;
+  }
+
+  const paymentSucceeded = Math.random() >= env.paymentFailureRate;
+
+  if (!paymentSucceeded) {
+    await subscriptionRepository.deactivate(subscription.id);
+    return;
+  }
+
+  const renewalDate = calculateEndDate(subscription.plan.billingCycle);
+
+  await subscriptionRepository.renew(subscription.id, {
+    endDate: renewalDate,
+    renewalDate,
+    remainingMessages: subscription.plan.maxMessages,
+  });
 }
 
 export async function createSubscription(data: CreateSubscriptionDto) {
@@ -47,26 +73,18 @@ export async function processDueRenewals(userId: number) {
   const due = await subscriptionRepository.findDueForRenewal(userId, new Date());
 
   for (const subscription of due) {
-    if (!subscription.autoRenew) {
-      await subscriptionRepository.deactivate(subscription.id);
-      continue;
-    }
-
-    const paymentSucceeded = Math.random() >= env.paymentFailureRate;
-
-    if (!paymentSucceeded) {
-      await subscriptionRepository.deactivate(subscription.id);
-      continue;
-    }
-
-    const renewalDate = calculateEndDate(subscription.plan.billingCycle);
-
-    await subscriptionRepository.renew(subscription.id, {
-      endDate: renewalDate,
-      renewalDate,
-      remainingMessages: subscription.plan.maxMessages,
-    });
+    await processRenewal(subscription);
   }
+}
+
+export async function processAllDueRenewals() {
+  const due = await subscriptionRepository.findAllDueForRenewal(new Date());
+
+  for (const subscription of due) {
+    await processRenewal(subscription);
+  }
+
+  return due.length;
 }
 
 export async function getUserSubscriptions(userId: number) {
